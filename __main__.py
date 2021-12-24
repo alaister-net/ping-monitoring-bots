@@ -5,18 +5,19 @@ from dotenv import load_dotenv
 import logging, disnake
 from disnake.ext import tasks
 
-logger = logging.getLogger('disnake')
-logger.setLevel(logging.DEBUG)
-handler = logging.FileHandler(filename='/var/log/pingmbot.log', encoding='utf-8', mode='w')
-handler.setFormatter(logging.Formatter('%(asctime)s:%(levelname)s:%(name)s: %(message)s'))
-logger.addHandler(handler)
-
 load_dotenv()
+log_file = getenv('LOG_FILE')
 token = getenv('DISCORD_TOKEN')
 name = getenv('NAME')
 public_id = getenv('PUBLIC_CHANNEL')
 private_id = getenv('PRIVATE_CHANNEL')
 admin_id = getenv('ADMIN_ROLE')
+
+logger = logging.getLogger('disnake')
+logger.setLevel(logging.INFO)
+handler = logging.FileHandler(filename=log_file, encoding='utf-8', mode='w')
+handler.setFormatter(logging.Formatter('%(asctime)s:%(levelname)s:%(name)s: %(message)s'))
+logger.addHandler(handler)
 
 client = disnake.Client()
 

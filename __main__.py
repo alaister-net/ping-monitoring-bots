@@ -80,16 +80,12 @@ async def update_data():
     view.add_item(disnake.ui.Button(label='GitHub', url='https://github.com/alaister-net/ping-monitoring-bots'))
     
     alert = False
-    titles = ('Node', 'Bot Ping', 'API Latency')
     
     for node, data in checks.items():
-        embed.add_field(titles[0], node)
-        embed.add_field(titles[1], str(data['ping']) + ' ms')
-        embed.add_field(titles[2], str(data['latency']) + ' ms')
+        embed.add_field(node, f'**BOT PING** {str(data['ping'])} ms  |  **API LATENCY** {str(data['latency'])} ms', False)
         
         if data['ping'] >= 3000 or data['latency'] >= 1500:
             alert = True
-        titles = ('\u200b', '\u200b', '\u200b')
     
     status_msg = await public_ch.send(embed=embed, view=view) if status_msg is None else await status_msg.edit(embed=embed)
     if alert and alert_msg is None:

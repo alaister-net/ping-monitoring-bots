@@ -82,7 +82,7 @@ async def update_data():
     alert = False
     
     for node, data in checks.items():
-        embed.add_field(node, f'**BOT PING** {str(data['ping'])} ms  |  **API LATENCY** {str(data['latency'])} ms', False)
+        embed.add_field(node, f"`BOT PING` **{str(data['ping'])}** ms \n`API LATENCY` **{str(data['latency'])}** ms", inline=False)
         
         if data['ping'] >= 3000 or data['latency'] >= 1500:
             alert = True

@@ -62,12 +62,25 @@ async def on_message(msg):
             await msg.channel.send(f'{name}:{round(client.latency*1000)}')
 
 @client.event
-async def on_message_delete(msg):
-    global status_msg, alert_msg
-    if msg.id == status_msg.id:
+async def on_message_delete(_):
+    if name != 'MASTER':
+        return
+    
+    global status_msg
+    try:
+        if await public_ch.fetch_message(status_msg.id) is None:
+            status_msg = None
+    except:
         status_msg = None
-    elif msg.id == alert_msg.id:
+        return
+    
+    global alert_msg
+    try:
+        if await public_ch.fetch_message(alert_msg.id) is None:
+            alert_msg = None
+    except:
         alert_msg = None
+        return
 
 async def update_data():
     global status_msg, alert_msg

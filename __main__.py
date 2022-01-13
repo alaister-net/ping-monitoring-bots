@@ -51,7 +51,7 @@ async def on_message(msg):
     
     if name == 'MASTER':
         global checks
-        diff =  msg.created_at.replace(tzinfo=None) - last_checked
+        diff = msg.created_at.replace(tzinfo=None) - last_checked
         checks[key] = {
             'ping': int(diff.total_seconds() * 1000),
             'latency': int(value),
@@ -107,8 +107,8 @@ async def update_data():
 @tasks.loop(seconds=60.0)
 async def checker():
     global last_checked
-    last_checked = datetime.now()
-    await private_ch.send('MASTER:PING')
+    msg = await private_ch.send('MASTER:PING')
+    last_checked = msg.created_at.replace(tzinfo=None)
 
 @checker.before_loop
 async def before_check():

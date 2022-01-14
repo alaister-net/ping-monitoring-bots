@@ -117,7 +117,7 @@ async def checker():
     
     if alerts:
         msg_body = f'<@&{admin_id}>, high ping/latency alert on {", ".join(alerts)} (<t:{int(time())}:R>)'
-        alert_msg = await public_ch.send(msg_body) if alert_msg is None else await alert_msg.edit(msg_body)
+        alert_msg = await public_ch.send(msg_body) if alert_msg is None else await alert_msg.edit(content=msg_body)
 
 @checker.before_loop
 async def before_check():

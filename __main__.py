@@ -27,7 +27,7 @@ client = disnake.Client()
 public_ch = None
 private_ch = None
 
-checks = []
+checks = [None]*100
 last_checked = None
 
 status_msg = None
@@ -57,7 +57,7 @@ async def on_message(msg):
     if name == 'MASTER':
         global checks
         diff = msg.created_at.replace(tzinfo=None) - last_checked
-        checks[i] = {
+        checks[int(i)] = {
             'node': key,
             'ping': int(diff.total_seconds() * 1000),
             'latency': int(value),
@@ -105,15 +105,18 @@ async def checker():
     
     alerts = []
     for check in checks:
-        embed.add_field(check['node'], f"`BOT PING` **{str(check['ping'])}** ms \n`API LATENCY` **{str(check['latency'])}** ms", inline=False)
+        if check is None:
+            continue
         
-        if data['ping'] >= 3000 or data['latency'] >= 1500:
+        embed.add_field(check['node'], f"`BOT PING` **{check['ping']}** ms \n`API LATENCY` **{check['latency']}** ms", inline=False)
+        
+        if check['ping'] >= 2000 or check['latency'] >= 1000:
             alerts.append(check['node'])
     
     status_msg = await public_ch.send(embed=embed, view=view) if status_msg is None else await status_msg.edit(embed=embed)
     
     if alerts:
-        msg_body = f'<@&{admin_id}>, high ping/latency alert on {", ".join(map(str, alerts))} (<t:{time()}:R>)'
+        msg_body = f'<@&{admin_id}>, high ping/latency alert on {", ".join(alerts)} (<t:{int(time())}:R>)'
         alert_msg = await public_ch.send(msg_body) if alert_msg is None else await alert_msg.edit(msg_body)
 
 @checker.before_loop

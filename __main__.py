@@ -1,6 +1,8 @@
 from os import getenv
 from sys import exit
 from datetime import datetime
+from time import time
+import asyncio
 from dotenv import load_dotenv
 import logging, disnake
 from disnake.ext import tasks
@@ -8,6 +10,7 @@ from disnake.ext import tasks
 load_dotenv()
 log_file = getenv('LOG_FILE')
 token = getenv('DISCORD_TOKEN')
+index = getenv('INDEX')
 name = getenv('NAME')
 public_id = getenv('PUBLIC_CHANNEL')
 private_id = getenv('PRIVATE_CHANNEL')
@@ -23,9 +26,10 @@ client = disnake.Client()
 
 public_ch = None
 private_ch = None
-checks = {}
+
+checks = []
 last_checked = None
-last_alert = None
+
 status_msg = None
 alert_msg = None
 
@@ -38,13 +42,14 @@ async def on_message(msg):
     if msg.author.id != client.user.id:
         return
     
-    data = msg.content.split(':', 1)
+    data = msg.content.split(':')
     
-    if len(data) != 2:
+    if len(data) != 3:
         return
     
-    key = data[0]
-    value = data[1]
+    i = data[0]
+    key = data[1]
+    value = data[2]
     
     if name == key:
         return
@@ -52,14 +57,15 @@ async def on_message(msg):
     if name == 'MASTER':
         global checks
         diff = msg.created_at.replace(tzinfo=None) - last_checked
-        checks[key] = {
+        checks[i] = {
+            'node': key,
             'ping': int(diff.total_seconds() * 1000),
             'latency': int(value),
         }
-        await update_data()
+        
     elif key == 'MASTER':
         if value == 'PING':
-            await msg.channel.send(f'{name}:{round(client.latency*1000)}')
+            await msg.channel.send(f'{index}:{name}:{round(client.latency*1000)}')
 
 @client.event
 async def on_message_delete(_):
@@ -82,8 +88,13 @@ async def on_message_delete(_):
         alert_msg = None
         return
 
-async def update_data():
-    global status_msg, alert_msg
+@tasks.loop(seconds=60.0)
+async def checker():
+    global last_checked, status_msg, alert_msg
+    msg = await private_ch.send('0:MASTER:PING')
+    last_checked = msg.created_at.replace(tzinfo=None)
+    
+    await asyncio.sleep(6)
     
     embed = disnake.Embed(title='Node Status (for Discord bots)', color=disnake.Color.fuchsia(), timestamp=datetime.now())
     embed.set_footer(text=f'Alaister.net Ping Monitoring Bot', icon_url='https://alaister.net/hotlink-ok/alaister_net_icon.png')
@@ -92,33 +103,32 @@ async def update_data():
     view.add_item(disnake.ui.Button(label='System Status', url='https://status.alaister.net'))
     view.add_item(disnake.ui.Button(label='GitHub', url='https://github.com/alaister-net/ping-monitoring-bots'))
     
-    alert = False
-    
-    for node, data in checks.items():
-        embed.add_field(node, f"`BOT PING` **{str(data['ping'])}** ms \n`API LATENCY` **{str(data['latency'])}** ms", inline=False)
+    alerts = []
+    for check in checks:
+        embed.add_field(check['node'], f"`BOT PING` **{str(check['ping'])}** ms \n`API LATENCY` **{str(check['latency'])}** ms", inline=False)
         
         if data['ping'] >= 3000 or data['latency'] >= 1500:
-            alert = True
+            alerts.append(check['node'])
     
     status_msg = await public_ch.send(embed=embed, view=view) if status_msg is None else await status_msg.edit(embed=embed)
-    if alert and alert_msg is None:
-        alert_msg = await public_ch.send(f'<@&{admin_id}> High ping/latency alert!')
-
-@tasks.loop(seconds=60.0)
-async def checker():
-    global last_checked
-    msg = await private_ch.send('MASTER:PING')
-    last_checked = msg.created_at.replace(tzinfo=None)
+    
+    if alerts:
+        msg_body = f'<@&{admin_id}>, high ping/latency alert on {", ".join(map(str, alerts))} (<t:{time()}:R>)'
+        alert_msg = await public_ch.send(msg_body) if alert_msg is None else await alert_msg.edit(msg_body)
 
 @checker.before_loop
 async def before_check():
     await client.wait_until_ready()
+    
     if status_msg is None:
         global public_ch, private_ch
+        
         public_ch = await client.fetch_channel(public_id)
         private_ch = await client.fetch_channel(private_id)
+        
         if public_ch is None or private_ch is None:
             exit('Channel is None!')
+        
         await public_ch.purge()
 
 if name == 'MASTER':

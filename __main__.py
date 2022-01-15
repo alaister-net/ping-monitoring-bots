@@ -118,7 +118,7 @@ async def checker():
     alerts = []
     for alerted_node, count in alerted_checks.items():
         if count >= 3:
-            alerts.append(check['node'])
+            alerts.append(alerted_node)
     
     if alerts:
         msg_body = f'<@&{admin_id}>, high ping/latency alert on {", ".join(alerts)} (<t:{int(time())}:R>)'

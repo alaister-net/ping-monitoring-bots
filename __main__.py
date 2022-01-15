@@ -24,14 +24,9 @@ logger.addHandler(handler)
 
 client = disnake.Client()
 
-public_ch = None
-private_ch = None
-
-checks = [None]*100
-last_checked = None
-
-status_msg = None
-alert_msg = None
+public_ch = private_ch = last_checked = status_msg = alert_msg = None
+checks = [None]*50
+alerted_checks = {}
 
 @client.event
 async def on_ready():
@@ -90,7 +85,7 @@ async def on_message_delete(_):
 
 @tasks.loop(seconds=60.0)
 async def checker():
-    global last_checked, status_msg, alert_msg
+    global last_checked, status_msg, alert_msg, alerted_checks
     msg = await private_ch.send('0:MASTER:PING')
     last_checked = msg.created_at.replace(tzinfo=None)
     
@@ -110,10 +105,20 @@ async def checker():
         
         embed.add_field(check['node'], f"`BOT PING` **{check['ping']}** ms \n`API LATENCY` **{check['latency']}** ms", inline=False)
         
+        count = alerted_checks.get(check['node'], 0)
         if check['ping'] >= 2000 or check['latency'] >= 1000:
-            alerts.append(check['node'])
+            alerted_checks[check['node']] = count + 1
+        elif count > 1:
+            alerted_checks[check['node']] = count - 1
+        else:
+            alerted_checks[check['node']] = 0
     
     status_msg = await public_ch.send(embed=embed, view=view) if status_msg is None else await status_msg.edit(embed=embed)
+    
+    alerts = []
+    for alerted_node, count in alerted_checks.items():
+        if count >= 3:
+            alerts.append(check['node'])
     
     if alerts:
         msg_body = f'<@&{admin_id}>, high ping/latency alert on {", ".join(alerts)} (<t:{int(time())}:R>)'

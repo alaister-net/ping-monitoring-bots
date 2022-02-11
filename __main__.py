@@ -179,10 +179,10 @@ async def checker():
         return
     
     if alerts:
-        msg_body = f'<@&{admin_id}>, **STATUS ALERTS:**'
+        msg_body = f"<@&{admin_id}> - **STATUS ALERTS** <t:{int(time())}:R>\n"
         
         for alert in alerts:
-            msg_body += f"\n{alert[1]} alert on {alert[0]} (<t:{int(time())}:R>)"
+            msg_body += f"\n> {alert[0]}: **{alert[1]}**"
         
         try:
             alert_msg = await public_ch.send(msg_body) if alert_msg is None else await alert_msg.edit(content=msg_body)

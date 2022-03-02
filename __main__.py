@@ -13,7 +13,8 @@ token = getenv('DISCORD_TOKEN')
 index = getenv('INDEX')
 name = getenv('NAME')
 public_id = getenv('PUBLIC_CHANNEL')
-private_id = getenv('PRIVATE_CHANNEL')
+alert_id = getenv('ALERT_CHANNEL')
+log_id = getenv('LOG_CHANNEL')
 admin_id = getenv('ADMIN_ROLE')
 
 logger = logging.getLogger('disnake')
@@ -24,7 +25,7 @@ logger.addHandler(handler)
 
 client = disnake.Client()
 
-public_ch = private_ch = last_checked = status_msg = alert_msg = None
+public_ch = alert_ch = log_ch = last_checked = status_msg = alert_msg = None
 checks = [{}]*50
 
 @client.event
@@ -72,7 +73,7 @@ async def on_message_delete(_):
     
     global alert_msg
     try:
-        if await public_ch.fetch_message(alert_msg.id) is None:
+        if await alert_ch.fetch_message(alert_msg.id) is None:
             alert_msg = None
     except:
         alert_msg = None
@@ -110,7 +111,7 @@ async def checker():
         update_data(index=check['index'], online=False)
         
     try:
-        msg = await private_ch.send('0:MASTER:PING')
+        msg = await log_ch.send('0:MASTER:PING')
     except Exception as e:
         print(e)
         await asyncio.sleep(5)
@@ -185,7 +186,7 @@ async def checker():
             msg_body += f"\n> {alert[0]}: **{alert[1]}**"
         
         try:
-            alert_msg = await public_ch.send(msg_body) if alert_msg is None else await alert_msg.edit(content=msg_body)
+            alert_msg = await alert_ch.send(msg_body) if alert_msg is None else await alert_msg.edit(content=msg_body)
         except Exception as e:
             print(e)
             await asyncio.sleep(5)
@@ -197,12 +198,13 @@ async def before_check():
     await client.wait_until_ready()
     
     if status_msg is None:
-        global public_ch, private_ch
+        global public_ch, alert_ch, log_ch
         
         public_ch = await client.fetch_channel(public_id)
-        private_ch = await client.fetch_channel(private_id)
+        alert_ch = await client.fetch_channel(alert_id)
+        log_ch = await client.fetch_channel(log_id)
         
-        if public_ch is None or private_ch is None:
+        if public_ch is None or alert_ch is None or log_ch is None:
             exit('Channel is None!')
         
         await public_ch.purge()

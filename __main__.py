@@ -100,7 +100,7 @@ def update_data(index: int, node: str = None, online: bool = None, delay: int = 
         'alerts': alerts,
     }
 
-@tasks.loop(seconds=60.0)
+@tasks.loop(seconds=30.0)
 async def checker():
     global last_checked, status_msg, alert_msg, checks
     
@@ -114,13 +114,13 @@ async def checker():
         msg = await log_ch.send('0:MASTER:PING')
     except Exception as e:
         print(e)
-        await asyncio.sleep(5)
+        await asyncio.sleep(3)
         await checker()
         return
     
     last_checked = msg.created_at.replace(tzinfo=None)
     
-    await asyncio.sleep(10)
+    await asyncio.sleep(8)
     
     embed = disnake.Embed(title='Node Status', color=disnake.Color.fuchsia(), timestamp=datetime.now())
     embed.set_footer(text=f'Alaister.net Ping Monitoring Bot', icon_url='https://alaister.net/hotlink-ok/alaister_net_icon.png')
@@ -149,26 +149,22 @@ async def checker():
             'latency': 0,
         })
         
-        if check['delay'] >= 2000:
+        if check['delay'] >= 1500:
             counts['delay'] += 1
-        elif counts['delay'] > 2:
-            counts['delay'] -= 2
         else:
             counts['delay'] = 0
         
-        if check['latency'] >= 1000:
+        if check['latency'] >= 500:
             counts['latency'] += 1
-        elif counts['latency'] > 2:
-            counts['latency'] -= 2
         else:
             counts['latency'] = 0
         
         update_data(index=check['index'], alerts=counts)
         
-        if counts['delay'] >= 3:
+        if counts['delay'] >= 2:
             alerts.append((check['node'], 'High message response delay'))
         
-        if counts['latency'] >= 3:
+        if counts['latency'] >= 2:
             alerts.append((check['node'], 'High Discord API latency'))
     
     try:

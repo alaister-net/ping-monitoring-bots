@@ -5,7 +5,8 @@ from time import time
 import asyncio
 from dotenv import load_dotenv
 import logging, disnake
-from disnake.ext import tasks
+from disnake.ext import commands, tasks
+from speedtest import Speedtest
 
 load_dotenv()
 log_file = getenv('LOG_FILE')
@@ -24,8 +25,11 @@ handler.setFormatter(logging.Formatter('%(asctime)s:%(levelname)s:%(name)s: %(me
 logger.addHandler(handler)
 
 client = disnake.Client()
+st_client = Speedtest()
+loop = asyncio.get_event_loop()
 
 public_ch = alert_ch = log_ch = last_checked = status_msg = alert_msg = None
+running_speedtest = False
 checks = [{}]*50
 
 @client.event
@@ -39,7 +43,7 @@ async def on_message(msg):
     
     data = msg.content.split(':')
     
-    if len(data) != 3:
+    if len(data) < 3:
         return
     
     i = data[0]
@@ -50,13 +54,21 @@ async def on_message(msg):
         return
     
     if name == 'MASTER':
-        global checks
-        diff = msg.created_at.replace(tzinfo=None) - last_checked
-        update_data(index=int(i), node=key, online=True, delay=int(diff.total_seconds() * 1000), latency=int(value))
+        if value == 'PONG':
+            diff = msg.created_at.replace(tzinfo=None) - last_checked
+            update_data(index=int(i), node=key, online=True, delay=int(diff.total_seconds() * 1000), latency=int(data[3]))
+        
+        elif value == 'ST-RESULT':
+            update_data(index=int(i), node=key, online=True, download=float(data[3]), upload=float(data[4]), last_speedtest=time())
         
     elif key == 'MASTER':
         if value == 'PING':
-            await msg.channel.send(f'{index}:{name}:{round(client.latency*1000)}')
+            await msg.channel.send(f'{index}:{name}:PONG:{round(client.latency*1000)}')
+        
+        elif value == 'SPEEDTEST' and int(data[3]) == index:
+            print('[INFO] Received speedtest request')
+            result = await loop.run_in_executor(None, run_speedtest)
+            await msg.channel.send(f'{index}:{name}:ST-RESULT:{result["download"]}:{result["upload"]}')
 
 @client.event
 async def on_message_delete(_):
@@ -79,7 +91,16 @@ async def on_message_delete(_):
         alert_msg = None
         return
 
-def update_data(index: int, node: str = None, online: bool = None, delay: int = None, latency: int = None, alerts: dict = None):
+def run_speedtest():
+    return {
+        'download': round(st_client.download(threads=1) / 1000000, 2),
+        'upload': round(st_client.upload(pre_allocate=False, threads=1) / 1000000, 2),
+    }
+
+def update_data(
+    index: int, node: str = None, online: bool = None, delay: int = None, latency: int = None, alerts: dict = None,
+    download: float = None, upload: float = None, last_speedtest: int = None,
+):
     global checks
     
     if alerts is None:
@@ -98,6 +119,9 @@ def update_data(index: int, node: str = None, online: bool = None, delay: int = 
         'delay': checks[index]['delay'] if delay is None else delay,
         'latency': checks[index]['latency'] if latency is None else latency,
         'alerts': alerts,
+        'download': checks[index]['download'] if download is None else download,
+        'upload': checks[index]['upload'] if upload is None else upload,
+        'last_speedtest': checks[index]['last_speedtest'] if last_speedtest is None else last_speedtest,
     }
 
 @tasks.loop(seconds=30.0)
@@ -120,13 +144,13 @@ async def checker():
     
     last_checked = msg.created_at.replace(tzinfo=None)
     
-    await asyncio.sleep(8)
+    await asyncio.sleep(5)
     
     embed = disnake.Embed(title='Node Status', color=disnake.Color.fuchsia(), timestamp=datetime.now())
     embed.set_footer(text=f'Alaister.net Ping Monitoring Bot', icon_url='https://alaister.net/hotlink-ok/alaister_net_icon.png')
     
     view = disnake.ui.View(timeout=None)
-    view.add_item(disnake.ui.Button(label='System Status', url='https://status.alaister.net'))
+    view.add_item(disnake.ui.Button(label='System Status', url='https://alaister.net/status/'))
     view.add_item(disnake.ui.Button(label='GitHub', url='https://github.com/alaister-net/ping-monitoring-bots'))
     
     alerts = []
@@ -205,7 +229,42 @@ async def before_check():
         
         await public_ch.purge()
 
+async def get_speedtest_nodes(i: disnake.AppCmdInter, inp: str):
+    return {check['node']:check['index'] for check in checks}
+
 if name == 'MASTER':
+    @commands.slash_command(description='Test server node network speed')
+    async def test_speed(i: disnake.AppCmdInter, target: int = commands.Param(autocomplete=get_speedtest_nodes)):
+        if running_speedtest:
+            embed = disnake.Embed(title='Another Speedtest is still running', color=disnake.Color.red(), timestamp=datetime.now())
+            return await i.response.send_message(embed=embed, ephemeral=True)
+        
+        if checks['index']['last_speedtest'] < 60*15:
+            check = checks['index']
+            embed = disnake.Embed(title=f"{check['node']} Speedtest Result (Cached)", color=disnake.Color.fuchsia(), timestamp=datetime.fromtimestamp(checks['index']['last_speedtest']))
+            embed.set_footer(text=f'Alaister.net Ping Monitoring Bot', icon_url='https://alaister.net/hotlink-ok/alaister_net_icon.png')
+            embed.add_field('Download', f"**{check['download']}** MB/s")
+            embed.add_field('Upload', f"**{check['upload']}** MB/s")
+            return await i.response.send_message(embed=embed)
+        
+        running_speedtest = True
+
+        await i.response.send_message(content='Loading...')
+        await log_ch.send(f'0:MASTER:SPEEDTEST:{target}')
+
+        while checks['index']['last_speedtest'] is None or checks['index']['last_speedtest'] >= 60*15:
+            await asyncio.sleep(10)
+        
+        check = checks['index']
+        embed = disnake.Embed(title=f"{check['node']} Speedtest Result", color=disnake.Color.fuchsia(), timestamp=datetime.fromtimestamp(checks['index']['last_speedtest']))
+        embed.set_footer(text=f'Alaister.net Ping Monitoring Bot', icon_url='https://alaister.net/hotlink-ok/alaister_net_icon.png')
+        embed.add_field('Download', f"**{check['download']}** MB/s")
+        embed.add_field('Upload', f"**{check['upload']}** MB/s")
+
+        await i.edit_original_message(embed=embed)
+
+        running_speedtest = False
+
     checker.start()
 
 client.run(token)

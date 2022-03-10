@@ -24,7 +24,7 @@ handler = logging.FileHandler(filename=log_file, encoding='utf-8', mode='w')
 handler.setFormatter(logging.Formatter('%(asctime)s:%(levelname)s:%(name)s: %(message)s'))
 logger.addHandler(handler)
 
-client = disnake.Client()
+bot = commands.Bot(help_command=None, test_guilds=[768837050161823774])
 st_client = Speedtest()
 loop = asyncio.get_event_loop()
 
@@ -32,13 +32,13 @@ public_ch = alert_ch = log_ch = last_checked = status_msg = alert_msg = None
 running_speedtest = False
 checks = [{}]*50
 
-@client.event
+@bot.event
 async def on_ready():
-    print(f'Logged in as {client.user} with name {name}')
+    print(f'Logged in as {bot.user} with name {name}')
 
-@client.event
+@bot.event
 async def on_message(msg):
-    if msg.author.id != client.user.id:
+    if msg.author.id != bot.user.id:
         return
     
     data = msg.content.split(':')
@@ -63,14 +63,14 @@ async def on_message(msg):
         
     elif key == 'MASTER':
         if value == 'PING':
-            await msg.channel.send(f'{index}:{name}:PONG:{round(client.latency*1000)}')
+            await msg.channel.send(f'{index}:{name}:PONG:{round(bot.latency*1000)}')
         
-        elif value == 'SPEEDTEST' and int(data[3]) == index:
+        elif value == 'SPEEDTEST' and int(data[3]) == int(index):
             print('[INFO] Received speedtest request')
             result = await loop.run_in_executor(None, run_speedtest)
-            await msg.channel.send(f'{index}:{name}:ST-RESULT:{result["download"]}:{result["upload"]}')
+            await msg.channel.send(f"{index}:{name}:ST-RESULT:{result['download']}:{result['upload']}")
 
-@client.event
+@bot.event
 async def on_message_delete(_):
     if name != 'MASTER':
         return
@@ -93,8 +93,8 @@ async def on_message_delete(_):
 
 def run_speedtest():
     return {
-        'download': round(st_client.download(threads=1) / 1000000, 2),
-        'upload': round(st_client.upload(pre_allocate=False, threads=1) / 1000000, 2),
+        'download': round(st_client.download() / 1000000, 2),
+        'upload': round(st_client.upload(pre_allocate=False) / 1000000, 2),
     }
 
 def update_data(
@@ -114,14 +114,14 @@ def update_data(
     
     checks[index] = {
         'index': index,
-        'node': checks[index]['node'] if node is None else node,
-        'online': checks[index]['online'] if online is None else online,
-        'delay': checks[index]['delay'] if delay is None else delay,
-        'latency': checks[index]['latency'] if latency is None else latency,
+        'node': checks[index].get('node', 'Node')  if node is None else node,
+        'online': checks[index].get('online', False)  if online is None else online,
+        'delay': checks[index].get('delay', 0)  if delay is None else delay,
+        'latency': checks[index].get('latency', 0)  if latency is None else latency,
         'alerts': alerts,
-        'download': checks[index]['download'] if download is None else download,
-        'upload': checks[index]['upload'] if upload is None else upload,
-        'last_speedtest': checks[index]['last_speedtest'] if last_speedtest is None else last_speedtest,
+        'download': checks[index].get('download', 0) if download is None else download,
+        'upload': checks[index].get('upload', 0) if upload is None else upload,
+        'last_speedtest': checks[index].get('last_speedtest', None) if last_speedtest is None else last_speedtest,
     }
 
 @tasks.loop(seconds=30.0)
@@ -215,56 +215,69 @@ async def checker():
 
 @checker.before_loop
 async def before_check():
-    await client.wait_until_ready()
+    await bot.wait_until_ready()
     
     if status_msg is None:
         global public_ch, alert_ch, log_ch
         
-        public_ch = await client.fetch_channel(public_id)
-        alert_ch = await client.fetch_channel(alert_id)
-        log_ch = await client.fetch_channel(log_id)
+        public_ch = await bot.fetch_channel(public_id)
+        alert_ch = await bot.fetch_channel(alert_id)
+        log_ch = await bot.fetch_channel(log_id)
         
         if public_ch is None or alert_ch is None or log_ch is None:
             exit('Channel is None!')
         
         await public_ch.purge()
 
-async def get_speedtest_nodes(i: disnake.AppCmdInter, inp: str):
-    return {check['node']:check['index'] for check in checks}
-
 if name == 'MASTER':
-    @commands.slash_command(description='Test server node network speed')
-    async def test_speed(i: disnake.AppCmdInter, target: int = commands.Param(autocomplete=get_speedtest_nodes)):
+    async def get_speedtest_nodes(i: disnake.AppCmdInter, inp: str):
+        nodes = {}
+    
+        for check in checks:
+            if not check:
+                continue
+            
+            nodes[check['node']] = check['index']
+    
+        return nodes
+    
+    @bot.slash_command(name='speedtest', description='Test server node network speed')
+    async def speedtest_cmd(i: disnake.AppCmdInter, target: int = commands.Param(autocomplete=get_speedtest_nodes)):
+        if name != 'MASTER':
+            return
+        
+        global running_speedtest
+    
         if running_speedtest:
-            embed = disnake.Embed(title='Another Speedtest is still running', color=disnake.Color.red(), timestamp=datetime.now())
+            embed = disnake.Embed(title='Another Speedtest is still running', color=disnake.Color.red())
             return await i.response.send_message(embed=embed, ephemeral=True)
         
-        if checks['index']['last_speedtest'] < 60*15:
-            check = checks['index']
-            embed = disnake.Embed(title=f"{check['node']} Speedtest Result (Cached)", color=disnake.Color.fuchsia(), timestamp=datetime.fromtimestamp(checks['index']['last_speedtest']))
+        if checks[target]['last_speedtest'] and (time() - checks[target]['last_speedtest']) < 60*15:
+            check = checks[target]
+            embed = disnake.Embed(title=f"{check['node']} Speedtest Result (Cached)", color=disnake.Color.fuchsia(), timestamp=datetime.fromtimestamp(check['last_speedtest']))
             embed.set_footer(text=f'Alaister.net Ping Monitoring Bot', icon_url='https://alaister.net/hotlink-ok/alaister_net_icon.png')
             embed.add_field('Download', f"**{check['download']}** MB/s")
             embed.add_field('Upload', f"**{check['upload']}** MB/s")
             return await i.response.send_message(embed=embed)
         
         running_speedtest = True
-
+    
         await i.response.send_message(content='Loading...')
         await log_ch.send(f'0:MASTER:SPEEDTEST:{target}')
-
-        while checks['index']['last_speedtest'] is None or checks['index']['last_speedtest'] >= 60*15:
-            await asyncio.sleep(10)
+    
+        while checks[target]['last_speedtest'] is None or (time() - checks[target]['last_speedtest']) >= 60*15:
+            await asyncio.sleep(5)
         
-        check = checks['index']
-        embed = disnake.Embed(title=f"{check['node']} Speedtest Result", color=disnake.Color.fuchsia(), timestamp=datetime.fromtimestamp(checks['index']['last_speedtest']))
+        check = checks[target]
+        embed = disnake.Embed(title=f"{check['node']} Speedtest Result", color=disnake.Color.fuchsia(), timestamp=datetime.fromtimestamp(check['last_speedtest']))
         embed.set_footer(text=f'Alaister.net Ping Monitoring Bot', icon_url='https://alaister.net/hotlink-ok/alaister_net_icon.png')
         embed.add_field('Download', f"**{check['download']}** MB/s")
         embed.add_field('Upload', f"**{check['upload']}** MB/s")
-
-        await i.edit_original_message(embed=embed)
-
+    
+        await i.edit_original_message(content='', embed=embed)
+    
         running_speedtest = False
 
     checker.start()
 
-client.run(token)
+bot.run(token)

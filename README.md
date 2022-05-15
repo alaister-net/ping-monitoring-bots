@@ -9,6 +9,7 @@ These bots are ideal for monitoring the status of the servers/nodes that host Di
 - Measure the download and upload speed of your servers
 - Show a permanent status summary message in a channel
 - Alert (ping) you (a role) when the slave bots are offline, not responding or taking long time to reply to messages from the master bot
+- Lightweight, tiny file size, low CPU and RAM consumption
 
 ## Requirements
 
@@ -57,15 +58,10 @@ cp .env.slave .env
 ```
 
 Edit the .env file. (some configurations are same as the master bot's .env file)
-- `INDEX`: an integer (between 1 and 50)**^**, needs to be **unique** across the slave bots; the lower the number, the higher priority it will be shown in the permanent status summary message
-- `NAME`: a **unique** name representing the slave server
+- `INDEX`: an integer that is **unique** across all slave bots; the lower the number, the higher priority it will be shown in the permanent status summary message
+- `NAME`: a name representing the slave server
 
 Start the slave bots
 ```
 python slave.py
-```
-
-**^** Having more than 50 slave servers? Increase the limit in the `master.py` file on your master server. Change this line:
-```python
-checks = [{}] * 50
 ```

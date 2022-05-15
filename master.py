@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 import logging, disnake
 from disnake.ext import commands, tasks
 
-VERSION = "1.0.0"
+VERSION = "1.1.0"
 
 load_dotenv()
 log_file = getenv("LOG_FILE")
@@ -26,338 +26,322 @@ handler.setFormatter(
 )
 logger.addHandler(handler)
 
-bot = commands.Bot(help_command=None, test_guilds=[int(guild_id)])
-
-ALERT_FORMAT = {"online": 0, "delay": 0, "latency": 0}
-public_ch = (
-    alert_ch
-) = (
-    log_ch
-) = (
-    last_checked
-) = status_msg = alert_msg = admin_ping_msg = last_ping = last_speedtest = None
-to_ping = False
-checks = [{}] * 50
+bot = commands.Bot(
+    intents=disnake.Intents(guild_messages=True, message_content=True),
+    help_command=None,
+    test_guilds=[int(guild_id)],
+)
 
 
-@bot.event
-async def on_ready():
-    print(f"Logged in as MASTER as '{bot.user}'")
+class PingMonitoringBot(commands.Cog):
+    def __init__(self, bot: commands.Bot):
+        self.bot = bot
 
+        self.checks = {}
+        self.public_ch = self.alert_ch = self.log_ch = None
+        self.status_msg = self.alert_msg = self.admin_ping_msg = None
+        self.last_checked = self.last_ping = self.last_speedtest = None
+        self.to_ping = False
 
-@bot.event
-async def on_message(msg):
-    if msg.author.id != bot.user.id:
-        return
+        self.checker.start()
 
-    data = msg.content.split(":")
+    @commands.Cog.listener()
+    async def on_ready(self):
+        print(f"Logged in as MASTER as '{bot.user}'")
 
-    if len(data) < 3:
-        return
+    @commands.Cog.listener()
+    async def on_message(self, msg):
+        if msg.author.id != self.bot.user.id:
+            return
 
-    i = data[0]
-    key = data[1]
-    value = data[2]
+        data = msg.content.split(":")
 
-    if key == "MASTER":
-        return
+        if len(data) < 3:
+            return
 
-    if value == "PONG":
-        speedtesting = last_speedtest is not None and time() - last_speedtest < 50
-        update_data(
-            index=int(i),
-            node=key,
-            online=True,
-            delay=None
-            if speedtesting
-            else int(
-                (
-                    (msg.created_at.replace(tzinfo=None) - last_checked).total_seconds()
-                    - round(bot.latency)
-                )
-                * 1000
-            ),
-            latency=None if speedtesting else int(data[3]),
-        )
+        i = int(data[0])
+        key = data[1]
+        value = data[2]
 
-    elif value == "ST-RESULT":
-        update_data(
-            index=int(i),
-            node=key,
-            online=True,
-            download=float(data[3]),
-            upload=float(data[4]),
-        )
+        if key == "MASTER":
+            return
 
-
-@bot.event
-async def on_message_delete(_):
-    global status_msg
-    try:
-        if await public_ch.fetch_message(status_msg.id) is None:
-            status_msg = None
-    except Exception as _:
-        status_msg = None
-    finally:
-        return
-
-    global alert_msg
-    try:
-        if await alert_ch.fetch_message(alert_msg.id) is None:
-            alert_msg = None
-    except Exception as _:
-        alert_msg = None
-    finally:
-        return
-
-    global admin_ping_msg
-    try:
-        if await alert_ch.fetch_message(admin_ping_msg.id) is None:
-            admin_ping_msg = None
-    except Exception as _:
-        admin_ping_msg = None
-    finally:
-        return
-
-
-@tasks.loop(seconds=30.0)
-async def checker():
-    global last_checked, status_msg, checks, to_ping
-
-    for check in checks:
-        if not check:
-            continue
-
-        check["online"] = False
-
-    try:
-        msg = await log_ch.send("0:MASTER:PING")
-    except Exception as e:
-        print(e)
-        await asyncio.sleep(3)
-        await checker()
-        return
-
-    last_checked = msg.created_at.replace(tzinfo=None)
-
-    await asyncio.sleep(3)
-
-    embed = disnake.Embed(
-        title="Node Status", color=disnake.Color.fuchsia(), timestamp=datetime.now()
-    )
-    embed.set_footer(
-        text=f"Alaister.net Ping Monitoring Bot v{VERSION}",
-        icon_url="https://alaister.net/hotlink-ok/alaister_net_icon.png",
-    )
-
-    view = StatusView()
-    view.add_item(
-        disnake.ui.Button(label="System Status", url="https://status.alaister.net")
-    )
-    view.add_item(
-        disnake.ui.Button(
-            label="GitHub", url="https://github.com/alaister-net/ping-monitoring-bots"
-        )
-    )
-
-    for check in checks:
-        if not check:
-            continue
-
-        embed.add_field(
-            check["node"],
-            f"`STATUS` **{':green_circle: ONLINE' if check['online'] else ':warning: DISCORD API ERROR'}**"
-            + f"\n`MESSAGE RESPONSE DELAY` **{check['delay'] if check['online'] else '[NO DATA]'}** ms"
-            + f"\n`DISCORD API LATENCY` **{check['latency'] if check['online'] else '[NO DATA]'}** ms"
-            + f"\n`DOWNLOAD SPEED` **{check['download'] or '[NO DATA]'}** MB/s"
-            + f"\n`UPLOAD SPEED` **{check['upload'] or '[NO DATA]'}** MB/s",
-            inline=False,
-        )
-
-        check["alerts"]["online"] = (
-            check["alerts"]["online"] + 1 if not check["online"] else 0
-        )
-        check["alerts"]["delay"] = (
-            check["alerts"]["delay"] + 1 if check["delay"] >= 1000 else 0
-        )
-        check["alerts"]["latency"] = (
-            check["alerts"]["latency"] + 1 if check["latency"] >= 1000 else 0
-        )
-
-        alert_msg_body = ""
-
-        if check["alerts"]["online"] >= 2:
-            alert_msg_body += f"- **Discord API error** <t:{int(time())}:R>\n"
-
-        if check["alerts"]["delay"] >= 2:
-            alert_msg_body += f"- **High message response delay** <t:{int(time())}:R>\n"
-
-        if check["alerts"]["latency"] >= 2:
-            alertmsg += f"- **High Discord API latency** <t:{int(time())}:R>\n"
+        if self.checks.get(i) is None:
+            self.checks[i] = {}
         
-        to_ping = alert_msg_body != ""
+        if value == "PONG":
+            speedtesting = (
+                self.last_speedtest is not None and time() - self.last_speedtest < 60
+            )
+            self.checks[i]["node"] = key
+            self.checks[i]["online"] = True
+            self.checks[i]["delay"] = (
+                self.checks[i].get("delay", 0)
+                if speedtesting
+                else int(
+                    (
+                        (msg.created_at.replace(tzinfo=None) - self.last_checked)
+                        .total_seconds() - round(self.bot.latency)
+                    ) * 1000
+                )
+            )
+            self.checks[i]["latency"] = (
+                self.checks[i].get("latency", 0)
+                if speedtesting
+                else int(data[3])
+            )
 
-        update_data(
-            index=check["index"], alerts=check["alerts"], alert_msg_body=alert_msg_body
-        )
+        elif value == "ST-RESULT":
+            self.checks[i]["node"] = key
+            self.checks[i]["online"] = True
+            self.checks[i]["download"] = float(data[3])
+            self.checks[i]["upload"] = float(data[4])
 
-    try:
-        status_msg = (
-            await public_ch.send(embed=embed, view=view)
-            if status_msg is None
-            else await status_msg.edit(embed=embed)
-        )
-    except Exception as e:
-        print(e)
-        await asyncio.sleep(5)
-        await checker()
-        return
-
-    await send_alert()
-
-
-@checker.before_loop
-async def before_check():
-    await bot.wait_until_ready()
-
-    if status_msg is None:
-        global public_ch, alert_ch, log_ch
-
-        public_ch = await bot.fetch_channel(public_id)
-        alert_ch = await bot.fetch_channel(alert_id)
-        log_ch = await bot.fetch_channel(log_id)
-
-        if public_ch is None or alert_ch is None or log_ch is None:
-            exit("Channel is None!")
-
-        await public_ch.purge()
-        await alert_ch.purge()
-        await log_ch.purge(limit=10000)
-
-
-def update_data(
-    index: int,
-    node: str = None,
-    online: bool = None,
-    delay: int = None,
-    latency: int = None,
-    download: float = None,
-    upload: float = None,
-    alerts: dict = None,
-    alert_msg_body: str = None,
-):
-    global checks
-
-    checks[index] = {
-        "index": index,
-        "node": node or checks[index].get("node", f"NODE #{index}"),
-        "online": checks[index].get("online", False) if online is None else online,
-        "delay": delay or checks[index].get("delay", 0),
-        "latency": latency or checks[index].get("latency", 0),
-        "download": download or checks[index].get("download", 0),
-        "upload": upload or checks[index].get("upload", 0),
-        "alerts": alerts or checks[index].get("alerts", ALERT_FORMAT),
-        "alert_msg_body": alert_msg_body or checks[index].get("alert_msg_body"),
-    }
-
-
-async def send_alert():
-    global checks, alert_msg, admin_ping_msg, last_ping, to_ping
-
-    embed = disnake.Embed(
-        title="Status Alerts", color=disnake.Color.dark_red(), timestamp=datetime.now()
-    )
-    embed.set_footer(
-        text=f"Alaister.net Ping Monitoring Bot v{VERSION}",
-        icon_url="https://alaister.net/hotlink-ok/alaister_net_icon.png",
-    )
-
-    for check in checks:
-        if not check:
-            continue
-
-        embed.add_field(
-            check["node"],
-            check["alert_msg_body"] or "No records have been found.",
-            inline=False,
-        )
-
-    try:
-        alert_msg = (
-            await alert_ch.send(embed=embed, view=AlertsView())
-            if alert_msg is None
-            else await alert_msg.edit(embed=embed)
-        )
-    except Exception as e:
-        print(e)
-        await asyncio.sleep(5)
-        await send_alert()
-
-    if to_ping and (not last_ping or (time() - last_ping) > (60 * 5 - 10)):
+    @commands.Cog.listener()
+    async def on_message_delete(self, _):
         try:
-            if admin_ping_msg:
-                await admin_ping_msg.delete()
-                admin_ping_msg = None
+            if await self.public_ch.fetch_message(self.status_msg.id) is None:
+                self.status_msg = None
+        except Exception:
+            self.status_msg = None
+        finally:
+            return
 
-            admin_ping_msg = await alert_ch.send(f"<@&{admin_id}>")
+        try:
+            if await self.alert_ch.fetch_message(self.alert_msg.id) is None:
+                self.alert_msg = None
+        except Exception:
+            self.alert_msg = None
+        finally:
+            return
 
-            last_ping = time()
+        try:
+            if await self.alert_ch.fetch_message(self.admin_ping_msg.id) is None:
+                self.admin_ping_msg = None
+        except Exception:
+            self.admin_ping_msg = None
+        finally:
+            return
+
+    @tasks.loop(seconds=30.0)
+    async def checker(self):
+        for index in self.checks.keys():
+            self.checks[index]["online"] = False
+
+        try:
+            msg = await self.log_ch.send("0:MASTER:PING")
         except Exception as e:
             print(e)
+            await asyncio.sleep(3)
+            await self.checker()
+            return
+
+        self.last_checked = msg.created_at.replace(tzinfo=None)
+
+        await asyncio.sleep(3)
+
+        embed = disnake.Embed(
+            title="Node Status", color=disnake.Color.fuchsia(), timestamp=datetime.now()
+        )
+        embed.set_footer(
+            text=f"Alaister.net Ping Monitoring Bot v{VERSION}",
+            icon_url="https://alaister.net/hotlink-ok/alaister_net_icon.png",
+        )
+
+        self.to_ping = False
+
+        for index in sorted(self.checks):
+            check = self.checks[index]
+
+            embed.add_field(
+                check.get("node", "Unnamed"),
+                f"`STATUS` **{':green_circle: ONLINE' if check.get('online') else ':warning: DISCORD API ERROR'}**"
+                + f"\n`MESSAGE RESPONSE DELAY` **{check.get('delay', '?') if check.get('online') else '?'}** ms"
+                + f"\n`DISCORD API LATENCY` **{check.get('latency', '?') if check.get('online') else '?'}** ms"
+                + f"\n`DOWNLOAD/UPLOAD SPEED` **{check.get('download', '?')}** / **{check.get('upload', '?')}** Mbps",
+                inline=False,
+            )
+
+            alerts = check.get("alerts", {"online": 0, "delay": 0, "latency": 0})
+            alerts["online"] = (
+                alerts["online"] + 1 if not check.get("online", False) else 0
+            )
+            alerts["delay"] = alerts["delay"] + 1 if check.get("delay", 0) >= 600 else 0
+            alerts["latency"] = (
+                alerts["latency"] + 1 if check.get("latency", 0) >= 200 else 0
+            )
+
+            alert_msg_body = ""
+
+            if alerts["online"] >= 2:
+                alert_msg_body += f"- **Discord API error** <t:{int(time())}:R>\n"
+
+            if alerts["delay"] >= 2:
+                alert_msg_body += (
+                    f"- **High message response delay** <t:{int(time())}:R>\n"
+                )
+
+            if alerts["latency"] >= 2:
+                alert_msg_body += (
+                    f"- **High Discord API latency** <t:{int(time())}:R>\n"
+                )
+
+            self.to_ping = self.to_ping or alert_msg_body != ""
+
+            self.checks[index]["alerts"] = alerts
+            self.checks[index]["alert_msg_body"] = alert_msg_body
+
+        view = StatusView(self.start_speedtest)
+
+        try:
+            self.status_msg = (
+                await self.public_ch.send(embed=embed, view=view)
+                if self.status_msg is None
+                else await self.status_msg.edit(embed=embed)
+            )
+        except Exception as e:
+            print(e)
+            await asyncio.sleep(5)
+            await self.checker()
+            return
+
+        await self.send_alerts()
+
+    @checker.before_loop
+    async def before_check(self):
+        await self.bot.wait_until_ready()
+
+        if self.status_msg is None:
+            self.public_ch = await self.bot.fetch_channel(public_id)
+            self.alert_ch = await self.bot.fetch_channel(alert_id)
+            self.log_ch = await self.bot.fetch_channel(log_id)
+
+            if self.public_ch is None or self.alert_ch is None or self.log_ch is None:
+                exit("One or more text channels cannot be found!")
+
+            await self.public_ch.purge()
+            await self.alert_ch.purge()
+
+    async def start_speedtest(self):
+        if self.last_speedtest and (time() - self.last_speedtest) < 60 * 15:
+            return int(self.last_speedtest + 60 * 15)
+
+        await self.log_ch.send(f"0:MASTER:SPEEDTEST")
+
+        self.last_speedtest = time()
+
+        return True
+
+    async def send_alerts(self):
+        embed = disnake.Embed(
+            title="Status Alerts",
+            color=disnake.Color.dark_red(),
+            timestamp=datetime.now(),
+        )
+        embed.set_footer(
+            text=f"Alaister.net Ping Monitoring Bot v{VERSION}",
+            icon_url="https://alaister.net/hotlink-ok/alaister_net_icon.png",
+        )
+
+        for index in sorted(self.checks):
+            check = self.checks.get(index, {})
+
+            embed.add_field(
+                check.get("node", "Unnamed"),
+                check.get("alert_msg_body")
+                or "Hurray! There are no system issues currently.",
+                inline=False,
+            )
+
+        try:
+            self.alert_msg = (
+                await self.alert_ch.send(
+                    embed=embed, view=AlertsView(self.clear_alerts)
+                )
+                if self.alert_msg is None
+                else await self.alert_msg.edit(embed=embed)
+            )
+        except Exception as e:
+            print(e)
+            await asyncio.sleep(5)
+            await self.send_alerts()
+
+        if self.to_ping and (
+            not self.last_ping or (time() - self.last_ping) > (60 * 5 - 10)
+        ):
+            try:
+                if self.admin_ping_msg:
+                    await self.admin_ping_msg.delete()
+                    self.admin_ping_msg = None
+
+                self.admin_ping_msg = await self.alert_ch.send(f"<@&{admin_id}>")
+
+                self.last_ping = time()
+            except Exception as e:
+                print(e)
+
+    async def clear_alerts(self):
+        for index in self.checks.keys():
+            self.checks[index]["alerts"] = self.checks[index]["alert_msg_body"] = None
+
+        if self.admin_ping_msg:
+            await self.admin_ping_msg.delete()
+            self.admin_ping_msg = None
+
+        await self.send_alerts()
 
 
 class StatusView(disnake.ui.View):
-    def __init__(self):
+    def __init__(self, st_func: PingMonitoringBot.start_speedtest):
         super().__init__()
 
         self.timeout = None
+
+        self.st_func = st_func
+
+        self.add_item(
+            disnake.ui.Button(label="System Status", url="https://status.alaister.net")
+        )
+        self.add_item(
+            disnake.ui.Button(
+                label="GitHub",
+                url="https://github.com/alaister-net/ping-monitoring-bots",
+            )
+        )
 
     @disnake.ui.button(
         label="Run Speedtest", emoji="▶️", style=disnake.ButtonStyle.green
     )
     async def run_speedtest(self, _, i: disnake.MessageInteraction):
-        global checks, last_speedtest
+        st = await self.st_func()
 
-        for check in checks:
-            if not check:
-                continue
-
-        if last_speedtest and (time() - last_speedtest) < 60 * 15:
+        if st is True:
+            embed = disnake.Embed(
+                title="Running speedtest...",
+                description=f"The result will be updated after a few minutes.",
+                color=disnake.Color.green(),
+            )
+        else:
             embed = disnake.Embed(
                 title="A speedtest has just recently finished.",
-                description=f"Please try again <t:{int(last_speedtest + 60*15)}:R>",
+                description=f"Please try again <t:{st}:R>",
                 color=disnake.Color.red(),
             )
-            return await i.response.send_message(embed=embed, ephemeral=True)
 
-        embed = disnake.Embed(
-            title="Running speedtest...",
-            description=f"The result will be updated after a few minutes.",
-            color=disnake.Color.green(),
-        )
         await i.response.send_message(embed=embed, ephemeral=True)
-
-        await log_ch.send(f"0:MASTER:SPEEDTEST")
-
-        last_speedtest = time()
 
 
 class AlertsView(disnake.ui.View):
-    def __init__(self):
+    def __init__(self, clear_func: PingMonitoringBot.clear_alerts):
         super().__init__()
 
         self.timeout = None
 
+        self.clear_func = clear_func
+
     @disnake.ui.button(label="Clear Alerts", emoji="❎", style=disnake.ButtonStyle.red)
     async def clear_alerts(self, _, i: disnake.MessageInteraction):
-        global checks, admin_ping_msg
-
-        for check in checks:
-            if not check:
-                continue
-
-            check["alerts"] = ALERT_FORMAT
-            check["alert_msg_body"] = None
+        await self.clear_func()
 
         embed = disnake.Embed(
             title="Done!",
@@ -366,12 +350,6 @@ class AlertsView(disnake.ui.View):
         )
         await i.response.send_message(embed=embed, ephemeral=True)
 
-        if admin_ping_msg:
-            await admin_ping_msg.delete()
-            admin_ping_msg = None
 
-        await send_alert()
-
-
-checker.start()
+bot.add_cog(PingMonitoringBot(bot))
 bot.run(token)

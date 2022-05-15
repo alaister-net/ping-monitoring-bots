@@ -18,7 +18,7 @@ handler.setFormatter(
 )
 logger.addHandler(handler)
 
-bot = disnake.Client()
+bot = disnake.Client(intents=disnake.Intents(guild_messages=True, message_content=True))
 st_client = Speedtest()
 loop = asyncio.get_event_loop()
 
@@ -44,14 +44,16 @@ async def on_message(msg):
     if key == "MASTER":
         try:
             if value == "PING":
-                await msg.channel.send(f"{index}:{name}:PONG:{round(bot.latency * 1000)}")
+                await msg.channel.send(
+                    f"{index}:{name}:PONG:{round(bot.latency * 1000)}"
+                )
 
             elif value == "SPEEDTEST":
                 result = await loop.run_in_executor(None, run_speedtest)
                 await msg.channel.send(
                     f"{index}:{name}:ST-RESULT:{result['download']}:{result['upload']}"
                 )
-        
+
         except Exception as e:
             print(e)
 

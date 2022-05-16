@@ -162,7 +162,7 @@ class PingMonitoringBot(commands.Cog):
                 inline=False,
             )
 
-            alerts = check.get("alerts", {"online": 0, "delay": 0, "latency": 0})
+            alerts = check.get("alerts") or {"online": 0, "delay": 0, "latency": 0}
             alerts["online"] = (
                 alerts["online"] + 1 if not check.get("online", False) else 0
             )

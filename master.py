@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 import logging, disnake
 from disnake.ext import commands, tasks
 
-VERSION = "1.1.0"
+VERSION = "1.1.2"
 
 load_dotenv()
 log_file = getenv("LOG_FILE")
@@ -189,7 +189,7 @@ class PingMonitoringBot(commands.Cog):
             self.to_ping = self.to_ping or alert_msg_body != ""
 
             self.checks[index]["alerts"] = alerts
-            self.checks[index]["alert_msg_body"] = alert_msg_body
+            self.checks[index]["alert_msg_body"] = alert_msg_body or check.get("alert_msg_body", "")
 
         view = StatusView(self.start_speedtest)
 

@@ -17,6 +17,10 @@ public_id = getenv("PUBLIC_CHANNEL")
 alert_id = getenv("ALERT_CHANNEL")
 log_id = getenv("LOG_CHANNEL")
 admin_id = getenv("ADMIN_ROLE")
+frequency = int(getenv("CHECK_FREQUENCY"))
+delay_threshold = int(getenv("DELAY_ALERT_THRESHOLD"))
+latency_threshold = int(getenv("LATENCY_ALERT_THRESHOLD"))
+ping_threshold = int(getenv("ALERTS_PING_THRESHOLD"))
 
 logger = logging.getLogger("disnake")
 logger.setLevel(logging.INFO)
@@ -68,10 +72,10 @@ class PingMonitoringBot(commands.Cog):
 
         if self.checks.get(i) is None:
             self.checks[i] = {}
-        
+
         if value == "PONG":
             speedtesting = (
-                self.last_speedtest is not None and time() - self.last_speedtest < 60
+                self.last_speedtest is not None and time() - self.last_speedtest < 75
             )
             self.checks[i]["node"] = key
             self.checks[i]["online"] = True
@@ -80,15 +84,16 @@ class PingMonitoringBot(commands.Cog):
                 if speedtesting
                 else int(
                     (
-                        (msg.created_at.replace(tzinfo=None) - self.last_checked)
-                        .total_seconds() - round(self.bot.latency)
-                    ) * 1000
+                        (
+                            msg.created_at.replace(tzinfo=None) - self.last_checked
+                        ).total_seconds()
+                        - round(self.bot.latency)
+                    )
+                    * 1000
                 )
             )
             self.checks[i]["latency"] = (
-                self.checks[i].get("latency", 0)
-                if speedtesting
-                else int(data[3])
+                self.checks[i].get("latency", 0) if speedtesting else int(data[3])
             )
 
         elif value == "ST-RESULT":
@@ -123,7 +128,7 @@ class PingMonitoringBot(commands.Cog):
         finally:
             return
 
-    @tasks.loop(seconds=30.0)
+    @tasks.loop(seconds=frequency)
     async def checker(self):
         for index in self.checks.keys():
             self.checks[index]["online"] = False
@@ -166,22 +171,26 @@ class PingMonitoringBot(commands.Cog):
             alerts["online"] = (
                 alerts["online"] + 1 if not check.get("online", False) else 0
             )
-            alerts["delay"] = alerts["delay"] + 1 if check.get("delay", 0) >= 600 else 0
+            alerts["delay"] = (
+                alerts["delay"] + 1 if check.get("delay", 0) >= delay_threshold else 0
+            )
             alerts["latency"] = (
-                alerts["latency"] + 1 if check.get("latency", 0) >= 200 else 0
+                alerts["latency"] + 1
+                if check.get("latency", 0) >= latency_threshold
+                else 0
             )
 
             alert_msg_body = ""
 
-            if alerts["online"] >= 2:
+            if alerts["online"] >= ping_threshold:
                 alert_msg_body += f"- **Discord API error** <t:{int(time())}:R>\n"
 
-            if alerts["delay"] >= 2:
+            if alerts["delay"] >= ping_threshold:
                 alert_msg_body += (
                     f"- **High message response delay** <t:{int(time())}:R>\n"
                 )
 
-            if alerts["latency"] >= 2:
+            if alerts["latency"] >= ping_threshold:
                 alert_msg_body += (
                     f"- **High Discord API latency** <t:{int(time())}:R>\n"
                 )
@@ -189,7 +198,9 @@ class PingMonitoringBot(commands.Cog):
             self.to_ping = self.to_ping or alert_msg_body != ""
 
             self.checks[index]["alerts"] = alerts
-            self.checks[index]["alert_msg_body"] = alert_msg_body or check.get("alert_msg_body", "")
+            self.checks[index]["alert_msg_body"] = alert_msg_body or check.get(
+                "alert_msg_body", ""
+            )
 
         view = StatusView(self.start_speedtest)
 

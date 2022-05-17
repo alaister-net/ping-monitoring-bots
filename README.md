@@ -41,12 +41,16 @@ Edit the .env file.
 - `PUBLIC_CHANNEL`: the ID of the channel that sends the permanent status summary message
 - `ALERT_CHANNEL`: the ID of the channel that sends the alert messages, can be same as the `PUBLIC_CHANNEL`
 - `LOG_CHANNEL`: the ID of the channel that allows master and slave bots to communicate *(recommended to be hidden from non staff members)*
-- `ADMIN_ROLE`: the ID of the role that will be pinged when something wrong with the slave bots/servers
-
+- `ADMIN_ROLE`: the ID of the role that will be pinged when `ALERTS_PING_THRESHOLD` is reached
+- `CHECK_FREQUENCY`: how frequently the slave bots are checked and the status message is updated, in **seconds (s)**
+- `DELAY_ALERT_THRESHOLD`: when the message response delay is higher than this integer, in **milliseconds (ms)**, an alert will be sent
+- `LATENCY_ALERT_THRESHOLD`: when the Discord API latency is higher than this integer, in **milliseconds (ms)**, an alert will be sent
+- `ALERTS_PING_THRESHOLD`: when the number of alerts >= this integer, the `ADMIN_ROLE` will be pinged
 Start the master bot
 ```
 python master.py
 ```
+> **Note:** If you update the .env file of master bot while it is still running, you need to stop and restart the bot to apply the changes.
 
 ### Slave Bot(s)
 

@@ -46,6 +46,7 @@ Edit the .env file.
 - `DELAY_ALERT_THRESHOLD`: when the message response delay is higher than this integer, in **milliseconds (ms)**, an alert will be sent
 - `LATENCY_ALERT_THRESHOLD`: when the Discord API latency is higher than this integer, in **milliseconds (ms)**, an alert will be sent
 - `ALERTS_PING_THRESHOLD`: when the number of alerts >= this integer, the `ADMIN_ROLE` will be pinged
+
 Start the master bot
 ```
 python master.py

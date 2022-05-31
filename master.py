@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 import logging, disnake
 from disnake.ext import commands, tasks
 
-VERSION = "1.1.2"
+VERSION = "1.1.3"
 
 load_dotenv()
 log_file = getenv("LOG_FILE")
@@ -143,7 +143,7 @@ class PingMonitoringBot(commands.Cog):
 
         self.last_checked = msg.created_at.replace(tzinfo=None)
 
-        await asyncio.sleep(3)
+        await asyncio.sleep(int(frequency / 2))
 
         embed = disnake.Embed(
             title="Node Status", color=disnake.Color.fuchsia(), timestamp=datetime.now()
